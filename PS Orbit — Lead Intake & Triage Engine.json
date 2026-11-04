@@ -1,0 +1,298 @@
+{
+  "name": "PS Orbit — Lead Intake & Triage Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2e6c07d8-8811-47a9-aef5-7ba80b3c8f29",
+      "name": "Webhook",
+      "webhookId": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PS Orbit Studio — Deterministic Lead Normalizer & Triage Scorer\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const raw = item.json.body || item.json;\n\n  // 1. Phone Normalization (E.164 formatting for US numbers)\n  let cleanPhone = (raw.buyer?.phone || '').replace(/\\D/g, '');\n  if (cleanPhone.length === 10) {\n    cleanPhone = '+1' + cleanPhone;\n  } else if (cleanPhone.length === 11 && cleanPhone.startsWith('1')) {\n    cleanPhone = '+' + cleanPhone;\n  } else {\n    cleanPhone = raw.buyer?.phone || 'INVALID_PHONE';\n  }\n\n  // 2. Deterministic Intent & Urgency Scoring (Scale: 1 to 10)\n  let score = 0;\n  const reasons = [];\n\n  // Timeline Evaluation\n  const timeline = (raw.inquiry?.timeline || '').toLowerCase();\n  if (timeline.includes('immediate') || timeline.includes('0-30')) {\n    score += 4;\n    reasons.push('Immediate purchase timeline (+4)');\n  } else if (timeline.includes('1-3 months') || timeline.includes('60')) {\n    score += 2;\n    reasons.push('Short-term purchase timeline (+2)');\n  } else {\n    score += 1;\n    reasons.push('Exploratory timeline (+1)');\n  }\n\n  // Financing / Capital Readiness\n  const financing = (raw.inquiry?.financing || '').toLowerCase();\n  if (financing.includes('cash')) {\n    score += 4;\n    reasons.push('All-cash buyer (+4)');\n  } else if (financing.includes('pre-approved') || financing.includes('approved')) {\n    score += 3;\n    reasons.push('Pre-approved mortgage (+3)');\n  } else {\n    score += 1;\n    reasons.push('Unverified financing (+1)');\n  }\n\n  // Budget Tier Evaluation\n  const budget = Number(raw.inquiry?.budget) || 0;\n  if (budget >= 500000) {\n    score += 2;\n    reasons.push('High-bracket property budget (+2)');\n  } else if (budget >= 300000) {\n    score += 1;\n    reasons.push('Mid-bracket property budget (+1)');\n  }\n\n  // Priority Tier Assignment\n  let priority = 'STANDARD';\n  if (score >= 8) {\n    priority = 'HIGH_PRIORITY_HOT';\n  } else if (score >= 5) {\n    priority = 'WARM';\n  }\n\n  output.push({\n    json: {\n      lead_id: raw.lead_id || `lead_${Date.now()}`,\n      normalized_at: new Date().toISOString(),\n      source: raw.source || 'Direct Webhook',\n      client: {\n        full_name: `${(raw.buyer?.first_name || '').trim()} ${(raw.buyer?.last_name || '').trim()}`.trim(),\n        first_name: raw.buyer?.first_name || '',\n        last_name: raw.buyer?.last_name || '',\n        email: (raw.buyer?.email || '').trim().toLowerCase(),\n        phone: cleanPhone,\n        is_phone_valid: cleanPhone.startsWith('+1') && cleanPhone.length === 12\n      },\n      property: {\n        address: raw.inquiry?.property_address || 'Unspecified Address',\n        budget: budget,\n        formatted_budget: `$${budget.toLocaleString('en-US')}`,\n        financing: raw.inquiry?.financing || 'Unknown',\n        timeline: raw.inquiry?.timeline || 'Unknown'\n      },\n      triage: {\n        qualification_score: score,\n        priority: priority,\n        audit_trail: reasons,\n        requires_immediate_call: score >= 8\n      },\n      raw_notes: raw.inquiry?.message || ''\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "81da7d23-7982-4ded-a851-eaee8beb0f7a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "036d5c16-da4c-4ba6-a2e1-59723bcba3f9",
+              "leftValue": "={{ $json.triage.requires_immediate_call }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        448,
+        0
+      ],
+      "id": "facf03ff-d440-4aef-9565-079d77905f7b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=🚨 **HOT REAL ESTATE LEAD RECEIVED** 🚨\n━━━━━━━━━━━━━━━━━━━━\n👤 **Buyer:** {{ $json.client.full_name }}\n📞 **Phone:** {{ $json.client.phone }}\n✉️ **Email:** {{ $json.client.email }}\n\n🏡 **Property:** {{ $json.property.address }}\n💰 **Budget:** {{ $json.property.formatted_budget }}\n🏦 **Financing:** {{ $json.property.financing }}\n⏳ **Timeline:** {{ $json.property.timeline }}\n\n🎯 **Triage Score:** {{ $json.triage.qualification_score }}/10 ({{ $json.triage.priority }})\n📋 **Why:** {{ $json.triage.audit_trail.join(', ') }}\n\n📝 **Notes:** \"{{ $json.raw_notes }}\"\n━━━━━━━━━━━━━━━━━━━━\n⚡ *Speed-to-lead standard: Call prospect within 120 seconds.*",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -96
+      ],
+      "id": "a158a321-475c-4779-93b9-4aa060bd6656",
+      "name": "Discord",
+      "webhookId": "00000000-0000-0000-0000-000000000000",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        96
+      ],
+      "id": "87d7799c-4c59-4232-a557-533f76a6b66b",
+      "name": "Log Standard Lead (Silent)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "list",
+          "cachedResultName": "PS Orbit — Master Real Estate Lead Ledger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID_HERE/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.normalized_at }}",
+            "Lead ID": "={{ $json.lead_id }}",
+            "Full Name": "={{ $json.client.full_name }}",
+            "Phone": "={{ $json.client.phone }}",
+            "Email": "={{ $json.client.email }}",
+            "Property Address": "={{ $json.property.address }}",
+            "Budget": "={{ $json.property.formatted_budget }}",
+            "Financing": "={{ $json.property.financing }}",
+            "Score": "={{ $json.triage.qualification_score }}",
+            "Priority": "={{ $json.triage.priority }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Property Address",
+              "displayName": "Property Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Financing",
+              "displayName": "Financing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        688,
+        240
+      ],
+      "id": "271a36fc-ad12-4c98-8379-ceddad2cba0e",
+      "name": "Append row in sheet",
+      "credentials": {}
+      }
+    
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Standard Lead (Silent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8cccf971-4cf7-4e6b-a475-d6a5b4e4e204",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}

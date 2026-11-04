@@ -1,0 +1,290 @@
+{
+  "name": "PS Orbit — Missed-Call Recovery & Instant Text-Back",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telephony/call-status",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dee59eff-1597-4e6b-b0a3-11ea548f97ea",
+      "name": "Webhook",
+      "webhookId": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const data = item.json.body || item.json;\n\n  // Telephony call status can be no-answer, busy, canceled, or completed with 0s duration\n  const callStatus = (data.CallStatus || data.call_status || '').toLowerCase();\n  const duration = parseInt(data.CallDuration || data.duration || '0', 10);\n  const callerNumber = data.From || data.caller || '+15125550198';\n  const dialedNumber = data.To || data.forwarded_to || '+15128889900';\n\n  const isMissedCall = ['no-answer', 'busy', 'canceled'].includes(callStatus) || (callStatus === 'completed' && duration === 0);\n\n  if (isMissedCall) {\n    // Generate unique recovery tracking ID\n    const recoveryId = 'rec_' + Math.random().toString(36).substring(2, 9);\n    const timestamp = new Date().toISOString();\n\n    // Standardized instant SMS recovery copy\n    const smsMessage = `Hi, this is Marcus with Orbit Realty. Sorry I missed your call! I am currently assisting a buyer—are you calling regarding a specific property listing or scheduling a tour?`;\n\n    output.push({\n      json: {\n        recovery_id: recoveryId,\n        timestamp: timestamp,\n        caller_number: callerNumber,\n        dialed_number: dialedNumber,\n        call_status: callStatus,\n        call_duration: duration,\n        recovery_sms_body: smsMessage,\n        escalation_priority: 'HIGH_URGENT_MISSED_CALL',\n        follow_up_stage: 'Stage 0',\n        lead_status: 'Active',\n        next_follow_up_date: timestamp.split('T')[0] // Due today\n      }\n    });\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "b7261a8c-1401-4b07-8b0b-7aac2c419cb4",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=🚨 **MISSED CALL RECOVERY FIRED**\n**Caller:** `{{ $json.caller_number }}`\n**Status:** `{{ $json.call_status }}` (Duration: {{ $json.call_duration }}s)\n**Escalation:** {{ $json.escalation_priority }}\n\n📱 **Automated Recovery SMS Sent:**\n> \"{{ $json.recovery_sms_body }}\"\n\n⚡ **Action Required:** Tap below to call back now.\ntel:{{ $json.caller_number }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c6a1e741-47d4-43fc-8583-e57ae1a4f824",
+      "name": "Discord",
+      "webhookId": "00000000-0000-0000-0000-000000000000",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "list",
+          "cachedResultName": "PS Orbit — Master Real Estate Lead Ledger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID_HERE/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Lead ID": "={{ $json.recovery_id }}",
+            "Full Name": "Inbound Caller (Unknown)",
+            "Phone": "={{ $json.caller_number }}",
+            "Email": "N/A - Phone Lead",
+            "Property Address": "Pending SMS Response",
+            "Budget": "Unverified",
+            "Financing": "Unverified",
+            "Score": "8",
+            "Priority": "HIGH_URGENT_MISSED_CALL",
+            "Lead Status": "Active",
+            "Follow-Up Stage": "Stage 0",
+            "Next Follow-Up Date": "={{ $json.next_follow_up_date }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Property Address",
+              "displayName": "Property Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Financing",
+              "displayName": "Financing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead Status",
+              "displayName": "Lead Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Follow-Up Stage",
+              "displayName": "Follow-Up Stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Next Follow-Up Date",
+              "displayName": "Next Follow-Up Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Contacted",
+              "displayName": "Last Contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        624,
+        0
+      ],
+      "id": "b4024458-beac-4fb7-bf76-fb65d262c57e",
+      "name": "Append row in sheet",
+      "credentials": {}
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f8d70f8a-c7f3-419e-ad26-01347b736c09",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}

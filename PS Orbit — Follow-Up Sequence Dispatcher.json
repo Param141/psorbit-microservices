@@ -1,0 +1,334 @@
+{
+  "name": "PS Orbit — Follow-Up Sequence Dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "73503707-1b65-4259-822c-cdb8387c0b53",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "list",
+          "cachedResultName": "PS Orbit — Master Real Estate Lead Ledger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID_HERE/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1283be2c-1068-4b66-bc84-740e336a7c1c",
+      "name": "Get row(s) in sheet",
+      "credentials": {}
+      }
+    ,
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst today = new Date().toISOString().split('T')[0]; // Current date YYYY-MM-DD\nconst eligibleLeads = [];\n\nfor (const item of items) {\n  const row = item.json;\n  \n  // Stop Condition: Only process active leads scheduled for today or earlier\n  if (row['Lead Status'] === 'Active' && row['Next Follow-Up Date'] && row['Next Follow-Up Date'] <= today) {\n    const currentStage = row['Follow-Up Stage'] || 'Stage 0';\n    let nextStage = 'Stage 1';\n    let nextOffsetDays = 1; // Default next interval\n    let messageBody = '';\n    let subject = '';\n\n    const name = row['Full Name'] || 'there';\n    const address = row['Property Address'] || 'the property';\n\n    // 5-Stage Cadence Logic\n    switch (currentStage) {\n      case 'Stage 0': // Move to Stage 1 (Day 1 touch)\n        nextStage = 'Stage 1';\n        nextOffsetDays = 2; // Next touch in 2 days (Day 3)\n        subject = `Tour confirmation for ${address}`;\n        messageBody = `Hi ${name}, Marcus here from the brokerage. Did you get a chance to review the photos and floor plan for ${address}? Let me know if you would like me to set up a private walkthrough this week.`;\n        break;\n\n      case 'Stage 1': // Move to Stage 2 (Day 3 touch)\n        nextStage = 'Stage 2';\n        nextOffsetDays = 4; // Next touch in 4 days (Day 7)\n        subject = `Market update near ${address}`;\n        messageBody = `Hi ${name}, two comparable properties just went under contract near ${address}. Are you still actively evaluating homes in this neighborhood, or has your search shifted?`;\n        break;\n\n      case 'Stage 2': // Move to Stage 3 (Day 7 touch)\n        nextStage = 'Stage 3';\n        nextOffsetDays = 7; // Next touch in 7 days (Day 14)\n        subject = `Weekend showings for ${address}`;\n        messageBody = `Hey ${name}, I am coordinating showing blocks for this coming Saturday. Do you have 15 minutes available to tour ${address} or similar listings in the area?`;\n        break;\n\n      case 'Stage 3': // Move to Stage 4 (Day 14 touch - The 9-word closing check)\n        nextStage = 'Stage 4';\n        nextOffsetDays = 7; // Next touch in 7 days (Day 21)\n        subject = `Quick question regarding ${address}`;\n        messageBody = `Hi ${name}, are you still interested in purchasing a property in Austin this quarter?`;\n        break;\n\n      case 'Stage 4': // Move to Stage 5 (Day 21 - The Breakup Message)\n        nextStage = 'Completed';\n        nextOffsetDays = 0;\n        subject = `Closing file for ${address}`;\n        messageBody = `Hi ${name}, I have not heard back, so I assume your property search is on hold for now. I will close out your inquiry file so I don't crowd your inbox. Feel free to reach back out whenever you are ready!`;\n        break;\n\n      default:\n        continue;\n    }\n\n    // Calculate next follow-up date\n    const nextDate = new Date();\n    nextDate.setDate(nextDate.getDate() + nextOffsetDays);\n    const formattedNextDate = nextDate.toISOString().split('T')[0];\n\n    eligibleLeads.push({\n      json: {\n        row_number: row.row_number || item.pairedItem?.item || 2,\n        lead_id: row['Lead ID'],\n        full_name: name,\n        email: row['Email'],\n        phone: row['Phone'],\n        property_address: address,\n        current_stage: currentStage,\n        next_stage: nextStage,\n        next_followup_date: nextStage === 'Completed' ? '' : formattedNextDate,\n        lead_status: nextStage === 'Completed' ? 'Unresponsive' : 'Active',\n        subject: subject,\n        message: messageBody,\n        processed_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn eligibleLeads;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "7577f6ef-d5ec-4207-8d45-e1ecdd5c28b6",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=📨 **Automated Follow-Up Dispatched**\n**Lead:** {{ $json.full_name }} ({{ $json.phone }})\n**Current Stage:** {{ $json.current_stage }} ➔ **Advancing to:** {{ $json.next_stage }}\n**Next Scheduled Touch:** {{ $json.next_followup_date }}\n\n**Dispatched Message:**\n> {{ $json.message }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "dabacc6a-dcea-48dc-a24f-68b48327b3e1",
+      "name": "Discord",
+      "webhookId": "00000000-0000-0000-0000-000000000000",
+      "credentials": {}
+      }
+    ,
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "list",
+          "cachedResultName": "PS Orbit — Master Real Estate Lead Ledger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID_HERE/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $('Code in JavaScript').item.json.lead_id }}",
+            "Lead Status": "={{ $('Code in JavaScript').item.json.lead_status }}",
+            "Follow-Up Stage": "={{ $('Code in JavaScript').item.json.next_stage }}",
+            "Next Follow-Up Date": "={{ $('Code in JavaScript').item.json.next_followup_date }}",
+            "Last Contacted": "={{ $('Code in JavaScript').item.json.processed_at }}"
+          },
+          "matchingColumns": [
+            "Lead ID"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Property Address",
+              "displayName": "Property Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Financing",
+              "displayName": "Financing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Lead Status",
+              "displayName": "Lead Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Follow-Up Stage",
+              "displayName": "Follow-Up Stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Next Follow-Up Date",
+              "displayName": "Next Follow-Up Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Contacted",
+              "displayName": "Last Contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        944,
+        0
+      ],
+      "id": "bdf14109-faf2-41c2-8e15-cc0b255b2b76",
+      "name": "Update row in sheet",
+      "credentials": {}
+      }
+    
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5ba2ef59-2d98-437a-a2a7-e3cf8b6e3b03",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}
